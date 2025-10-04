@@ -40,11 +40,31 @@ function loadCommands(dir = path.join(__dirname, './commands')) {
         try {
           delete require.cache[require.resolve(filepath)];
           let cmd = require(filepath);
-          if (cmd.handler && typeof cmd.handler === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
-            global.plugins.push(cmd);
-            console.log(`✅ Loaded: ${path.relative(dir, filepath)}`);
+          // Dukung plugin dengan fungsi langsung (handler)
+          if (typeof cmd === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+            global.plugins.push({
+              handler: cmd,
+              command: cmd.command,
+              category: cmd.category || 'uncategorized',
+              description: cmd.description || 'No description',
+              owner: cmd.owner || false,
+              limit: cmd.limit || false
+            });
+            console.log(`✅ Loaded (handler): ${path.relative(dir, filepath)}`);
+          }
+          // Dukung plugin dengan objek (execute)
+          else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+            global.plugins.push({
+              handler: cmd.execute,
+              command: cmd.command,
+              category: cmd.category || 'uncategorized',
+              description: cmd.description || 'No description',
+              owner: cmd.owner || false,
+              limit: cmd.limit || false
+            });
+            console.log(`✅ Loaded (execute): ${path.relative(dir, filepath)}`);
           } else {
-            console.error(`❌ Plugin ${filepath} tidak memiliki handler atau command yang valid`);
+            console.error(`❌ Plugin ${filepath} tidak memiliki handler/execute atau command yang valid`);
           }
         } catch (e) {
           console.error(`❌ Error load plugin ${filepath}:`, e);
@@ -142,7 +162,8 @@ async function start() {
       raw.message.buttonsResponseMessage?.selectedButtonId ||
       (raw.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ?
         JSON.parse(raw.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id : '') ||
-      (raw.message.interactiveResponseMessage?.singleSelectReply?.selectedRowId || '');
+      (raw.message.interactiveResponseMessage?.singleSelectReply?.selectedRowId || '') ||
+      (raw.message.reactionMessage?.text || '');
 
     // Handle quoted
     if (raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
