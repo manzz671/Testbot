@@ -1,4 +1,4 @@
-const nodejs = require("@whiskeysockets/baileys");
+const nodejs = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const pino = require('pino');
 const path = require('path');
@@ -10,7 +10,6 @@ const qrcode = require('qrcode-terminal');
 const { toBuffer } = require('qrcode');
 const { parsePhoneNumber } = require('awesome-phonenumber');
 const { default: WAConnection, useMultiFileAuthState, Browsers, DisconnectReason, makeInMemoryStore, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, proto, jidNormalizedUser, getAggregateVotesInPollMessage, makeWASocket, downloadMediaMessage } = require('@whiskeysockets/baileys');
-
 
 const { app, server, PORT } = require('./lib/server');
 const { dataBase } = require('./lib/database');
@@ -28,7 +27,6 @@ watchAll([
   path.join(__dirname, './database')
 ]);
 
-// Load data owner & premium
 global.plugins = [];
 
 function loadCommands(dir = path.join(__dirname, './commands')) {
@@ -42,9 +40,14 @@ function loadCommands(dir = path.join(__dirname, './commands')) {
         try {
           delete require.cache[require.resolve(filepath)];
           let cmd = require(filepath);
-          global.plugins.push(cmd);
+          if (cmd.handler && typeof cmd.handler === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+            global.plugins.push(cmd);
+            console.log(`✅ Loaded: ${path.relative(dir, filepath)}`);
+          } else {
+            console.error(`❌ Plugin ${filepath} tidak memiliki handler atau command yang valid`);
+          }
         } catch (e) {
-          console.error(`âŒ Error load plugin ${filepath}:`, e);
+          console.error(`❌ Error load plugin ${filepath}:`, e);
         }
       }
     });
@@ -55,18 +58,17 @@ function loadCommands(dir = path.join(__dirname, './commands')) {
 function watchCommands(dir = path.join(__dirname, './commands')) {
   fs.watch(dir, { recursive: true }, (event, filename) => {
     if (!filename.endsWith('.js')) return;
-    console.log(`â™»ï¸ Plugin ${filename} changed, reloading...`);
+    console.log(`♻️ Plugin ${filename} changed, reloading...`);
     loadCommands(dir);
   });
 }
 
 async function start() {
-  // Gunakan folder auth/ yang sudah ada tanpa menghapus
   const { state, saveCreds } = await useMultiFileAuthState('auth');
   const { version, isLatest } = await fetchLatestBaileysVersion();
 
   const conn = makeWASocket({
-    printQRInTerminal: true, // Ubah ke false jika ingin pairing code
+    printQRInTerminal: true,
     syncFullHistory: true,
     markOnlineOnConnect: true,
     connectTimeoutMs: 60000,
@@ -123,6 +125,11 @@ async function start() {
     let raw = messages[0];
     if (!raw.message) return;
 
+    // Normalisasi pesan
+    raw.message = (Object.keys(raw.message)[0] === 'ephemeralMessage' || Object.keys(raw.message)[0] === 'viewOnceMessage')
+      ? raw.message[Object.keys(raw.message)[0]].message
+      : raw.message;
+
     raw.chat = raw.key.remoteJid;
     raw.sender = raw.key.fromMe ? conn.user.id : (raw.key.participant || raw.key.remoteJid);
     raw.isGroup = raw.chat.endsWith('@g.us');
@@ -135,8 +142,9 @@ async function start() {
       raw.message.buttonsResponseMessage?.selectedButtonId ||
       (raw.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ?
         JSON.parse(raw.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id : '') ||
-      '';
+      (raw.message.interactiveResponseMessage?.singleSelectReply?.selectedRowId || '');
 
+    // Handle quoted
     if (raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
       const ctx = raw.message.extendedTextMessage.contextInfo;
       const quoted = ctx.quotedMessage;
@@ -175,7 +183,11 @@ async function start() {
       raw.isBotAdmin = metadata.participants.find(p => p.id === conn.user.id)?.admin != null;
     }
 
-    await handleMessage(raw, { conn });
+    try {
+      await handleMessage(raw, { conn });
+    } catch (e) {
+      console.error('Error in handleMessage:', e);
+    }
   });
 
   conn.ev.on('group-participants.update', async (update) => {
@@ -217,10 +229,10 @@ async function start() {
       console.log(`Disconnect Reason: ${reason}`);
       if (reason === DisconnectReason.connectionLost || reason === DisconnectReason.connectionClosed || reason === DisconnectReason.timedOut) {
         console.log('Reconnecting...');
-        setTimeout(start, 3000); // Tunggu 3 detik sebelum reconnect
+        setTimeout(start, 3000);
       } else if (reason === DisconnectReason.connectionReplaced) {
         console.log('Another session is active. Waiting to reconnect...');
-        setTimeout(start, 5000); // Tunggu 5 detik untuk memastikan sesi lain ditutup
+        setTimeout(start, 5000);
       } else if (reason === DisconnectReason.loggedOut || reason === DisconnectReason.forbidden || reason === DisconnectReason.multideviceMismatch) {
         console.log('Session invalid, please scan QR or use pairing code again...');
         process.exit(1);
