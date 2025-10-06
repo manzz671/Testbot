@@ -1,4 +1,4 @@
-const nodejs = require('@whiskeysockets/baileys');
+    const { WAConnection, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const pino = require('pino');
 const path = require('path');
@@ -9,7 +9,7 @@ const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 const { toBuffer } = require('qrcode');
 const { parsePhoneNumber } = require('awesome-phonenumber');
-const { default: WAConnection, useMultiFileAuthState, Browsers, DisconnectReason, makeInMemoryStore, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, proto, jidNormalizedUser, getAggregateVotesInPollMessage, makeWASocket, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, makeInMemoryStore, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, proto, getAggregateVotesInPollMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 const { app, server, PORT } = require('./lib/server');
 const { dataBase } = require('./lib/database');
@@ -23,14 +23,16 @@ watchAll([
   path.join(__dirname, './index.js'),
   path.join(__dirname, './lib'),
   path.join(__dirname, './commands'),
+  path.join(__dirname, './defaults'), // Tambah folder defaults
+  path.join(__dirname, './reaction'), // Tambah folder reaction
   path.join(__dirname, './settings.js'),
   path.join(__dirname, './database')
 ]);
 
 global.plugins = [];
 
-function loadCommands(dir = path.join(__dirname, './commands')) {
-  global.plugins = [];
+function loadCommands(dir) {
+  const plugins = [];
   const walk = (folder) => {
     fs.readdirSync(folder).forEach(file => {
       let filepath = path.join(folder, file);
@@ -42,45 +44,58 @@ function loadCommands(dir = path.join(__dirname, './commands')) {
           let cmd = require(filepath);
           // Dukung plugin dengan fungsi langsung (handler)
           if (typeof cmd === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
-            global.plugins.push({
+            plugins.push({
               handler: cmd,
               command: cmd.command,
               category: cmd.category || 'uncategorized',
               description: cmd.description || 'No description',
               owner: cmd.owner || false,
-              limit: cmd.limit || false
+              limit: cmd.limit || false,
+              noPrefix: cmd.noPrefix || false, // Tambah noPrefix
+              reaction: cmd.reaction || false // Tambah reaction
             });
-            console.log(`✅ Loaded (handler): ${path.relative(dir, filepath)}`);
+            console.log(chalk.greenBright(`✅ Loaded (handler): ${path.relative(dir, filepath)}`));
           }
           // Dukung plugin dengan objek (execute)
           else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
-            global.plugins.push({
+            plugins.push({
               handler: cmd.execute,
               command: cmd.command,
               category: cmd.category || 'uncategorized',
               description: cmd.description || 'No description',
               owner: cmd.owner || false,
-              limit: cmd.limit || false
+              limit: cmd.limit || false,
+              noPrefix: cmd.noPrefix || false, // Tambah noPrefix
+              reaction: cmd.reaction || false // Tambah reaction
             });
-            console.log(`✅ Loaded (execute): ${path.relative(dir, filepath)}`);
+            console.log(chalk.greenBright(`✅ Loaded (execute): ${path.relative(dir, filepath)}`));
           } else {
-            console.error(`❌ Plugin ${filepath} tidak memiliki handler/execute atau command yang valid`);
+            console.error(chalk.redBright(`❌ Plugin ${filepath} tidak memiliki handler/execute atau command yang valid`));
           }
         } catch (e) {
-          console.error(`❌ Error load plugin ${filepath}:`, e);
+          console.error(chalk.redBright(`❌ Error load plugin ${filepath}:`, e));
         }
       }
     });
   };
   walk(dir);
+  return plugins;
 }
 
-function watchCommands(dir = path.join(__dirname, './commands')) {
+function watchCommands(dir) {
   fs.watch(dir, { recursive: true }, (event, filename) => {
     if (!filename.endsWith('.js')) return;
-    console.log(`♻️ Plugin ${filename} changed, reloading...`);
-    loadCommands(dir);
+    console.log(chalk.cyanBright(`♻️ Plugin ${filename} changed, reloading...`));
+    loadAllPlugins();
   });
+}
+
+function loadAllPlugins() {
+  global.plugins = [
+    ...loadCommands(path.join(__dirname, './commands')),
+    ...loadCommands(path.join(__dirname, './defaults')),
+    ...loadCommands(path.join(__dirname, './reaction'))
+  ];
 }
 
 async function start() {
@@ -132,14 +147,19 @@ async function start() {
   conn.decodeJid = (jid) => {
     if (!jid) return jid;
     if (/:\d+@/gi.test(jid)) {
-      let decode = nodejs.jidDecode(jid) || {};
+      let decode = jidNormalizedUser(jid) || {};
       return decode.user && decode.server ? decode.user + '@' + decode.server : jid;
     }
     return jid;
   };
 
-  loadCommands();
-  watchCommands();
+  // Muat semua plugin
+  loadAllPlugins();
+
+  // Watch semua folder
+  watchCommands(path.join(__dirname, './commands'));
+  watchCommands(path.join(__dirname, './defaults'));
+  watchCommands(path.join(__dirname, './reaction'));
 
   conn.ev.on('messages.upsert', async ({ messages }) => {
     let raw = messages[0];
@@ -207,7 +227,7 @@ async function start() {
     try {
       await handleMessage(raw, { conn });
     } catch (e) {
-      console.error('Error in handleMessage:', e);
+      console.error(chalk.redBright('Error in handleMessage:', e));
     }
   });
 
@@ -215,7 +235,7 @@ async function start() {
     try {
       await groupParticipantsUpdate(conn, update);
     } catch (e) {
-      console.error('Error group-participants.update:', e);
+      console.error(chalk.redBright('Error group-participants.update:', e));
     }
   });
 
@@ -223,7 +243,7 @@ async function start() {
     try {
       await antiCallHandler(conn, call);
     } catch (e) {
-      console.error('Error antiCall:', e);
+      console.error(chalk.redBright('Error antiCall:', e));
     }
   });
 
@@ -241,31 +261,31 @@ async function start() {
         if (global.store) await dataBase('baileys_store.json').write(global.store);
       }, 30 * 1000);
     } catch (e) {
-      console.error('Error loading database:', e);
+      console.error(chalk.redBright('Error loading database:', e));
       process.exit(1);
     }
 
     if (connection === 'close') {
       const reason = new Boom(lastDisconnect?.error)?.output.statusCode;
-      console.log(`Disconnect Reason: ${reason}`);
+      console.log(chalk.redBright(`Disconnect Reason: ${reason}`));
       if (reason === DisconnectReason.connectionLost || reason === DisconnectReason.connectionClosed || reason === DisconnectReason.timedOut) {
-        console.log('Reconnecting...');
+        console.log(chalk.cyanBright('Reconnecting...'));
         setTimeout(start, 3000);
       } else if (reason === DisconnectReason.connectionReplaced) {
-        console.log('Another session is active. Waiting to reconnect...');
+        console.log(chalk.yellowBright('Another session is active. Waiting to reconnect...'));
         setTimeout(start, 5000);
       } else if (reason === DisconnectReason.loggedOut || reason === DisconnectReason.forbidden || reason === DisconnectReason.multideviceMismatch) {
-        console.log('Session invalid, please scan QR or use pairing code again...');
+        console.log(chalk.redBright('Session invalid, please scan QR or use pairing code again...'));
         process.exit(1);
       } else if (reason === DisconnectReason.restartRequired) {
-        console.log('Restart required...');
+        console.log(chalk.cyanBright('Restart required...'));
         start();
       } else {
-        console.error(`Unknown DisconnectReason: ${reason}|${connection}`);
+        console.error(chalk.redBright(`Unknown DisconnectReason: ${reason}|${connection}`));
         process.exit(1);
       }
     } else if (connection === 'open') {
-      console.log('Connected to: ' + JSON.stringify(conn.user, null, 2));
+      console.log(chalk.greenBright('Connected to: ' + JSON.stringify(conn.user, null, 2)));
     } else if (qr && !usePairingCode) {
       qrcode.generate(qr, { small: true });
       app.use('/qr', async (req, res) => {
