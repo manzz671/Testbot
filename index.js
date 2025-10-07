@@ -1,4 +1,4 @@
-    const { WAConnection, jidNormalizedUser } = require('@whiskeysockets/baileys');
+const { WAConnection, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const pino = require('pino');
 const path = require('path');
@@ -140,6 +140,10 @@ async function start() {
     }
   });
 
+  // Tambahan untuk antidelete: Inisialisasi makeInMemoryStore
+  const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
+  store.bind(conn.ev);
+
   const usePairingCode = process.argv.includes('--pairing-code');
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const question = (text) => new Promise((resolve) => rl.question(text, resolve));
@@ -228,6 +232,14 @@ async function start() {
       await handleMessage(raw, { conn });
     } catch (e) {
       console.error(chalk.redBright('Error in handleMessage:', e));
+    }
+  });
+
+  // Tambahan untuk antidelete: Tangani pesan yang dihapus
+  conn.ev.on('messages.delete', async (update) => {
+    console.log(chalk.yellowBright(`[INDEX] Messages delete: ${JSON.stringify(update)}`));
+    for (const key of update.keys) {
+      await handleMessage({ key, messageStubType: 40 }, { conn });
     }
   });
 
