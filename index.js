@@ -1,5 +1,5 @@
 const { WAConnection, jidNormalizedUser } = require('@whiskeysockets/baileys');
-const fs = require('fs');
+const fs = require('fs').promises;
 const pino = require('pino');
 const path = require('path');
 const axios = require('axios');
@@ -14,7 +14,6 @@ const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason
 
 const { app, server, PORT } = require('./lib/server');
 const { dataBase } = require('./lib/database');
-const db = require('./lib/db');
 const handleMessage = require('./lib/handler');
 const groupParticipantsUpdate = require('./lib/group-participants');
 const antiCallHandler = require('./lib/anticall');
@@ -141,6 +140,10 @@ async function start() {
   // Inisialisasi makeInMemoryStore untuk antidelete
   const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
   store.bind(conn.ev);
+
+  // Inisialisasi database
+  const db = dataBase('database1.json');
+  const storeDb = dataBase('baileys_store.json');
 
   const usePairingCode = process.argv.includes('--pairing-code');
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -272,13 +275,13 @@ async function start() {
   conn.ev.on('connection.update', async (update) => {
     const { qr, connection, lastDisconnect, isNewLogin } = update;
     try {
-      const loadData = await dataBase('database1.json').read();
-      const storeLoadData = await dataBase('baileys_store.json').read();
+      const loadData = await db.read();
+      const storeLoadData = await storeDb.read();
       global.db = loadData || { hit: {}, set: {}, cmd: {}, store: {}, users: {}, game: {}, groups: {}, database: {}, premium: [], sewa: [] };
       global.store = storeLoadData || { contacts: {}, presences: {}, messages: {}, groupMetadata: {} };
       setInterval(async () => {
-        if (global.db) await dataBase('database1.json').write(global.db);
-        if (global.store) await dataBase('baileys_store.json').write(global.store);
+        if (global.db) await db.write(global.db);
+        if (global.store) await storeDb.write(global.store);
       }, 30 * 1000);
     } catch (e) {
       console.error(chalk.redBright('Error loading database:', e));
