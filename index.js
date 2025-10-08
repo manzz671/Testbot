@@ -9,6 +9,7 @@ const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 const { toBuffer } = require('qrcode');
 const { parsePhoneNumber } = require('awesome-phonenumber');
+const fetch = require('node-fetch'); // Tambahan untuk autoAI
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, makeInMemoryStore, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, proto, getAggregateVotesInPollMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 const { app, server, PORT } = require('./lib/server');
@@ -23,8 +24,8 @@ watchAll([
   path.join(__dirname, './index.js'),
   path.join(__dirname, './lib'),
   path.join(__dirname, './commands'),
-  path.join(__dirname, './defaults'), // Tambah folder defaults
-  path.join(__dirname, './reaction'), // Tambah folder reaction
+  path.join(__dirname, './defaults'),
+  path.join(__dirname, './reaction'),
   path.join(__dirname, './settings.js'),
   path.join(__dirname, './database')
 ]);
@@ -42,7 +43,6 @@ function loadCommands(dir) {
         try {
           delete require.cache[require.resolve(filepath)];
           let cmd = require(filepath);
-          // Dukung plugin dengan fungsi langsung (handler)
           if (typeof cmd === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
             plugins.push({
               handler: cmd,
@@ -51,13 +51,11 @@ function loadCommands(dir) {
               description: cmd.description || 'No description',
               owner: cmd.owner || false,
               limit: cmd.limit || false,
-              noPrefix: cmd.noPrefix || false, // Tambah noPrefix
-              reaction: cmd.reaction || false // Tambah reaction
+              noPrefix: cmd.noPrefix || false,
+              reaction: cmd.reaction || false
             });
             console.log(chalk.greenBright(`✅ Loaded (handler): ${path.relative(dir, filepath)}`));
-          }
-          // Dukung plugin dengan objek (execute)
-          else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+          } else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
             plugins.push({
               handler: cmd.execute,
               command: cmd.command,
@@ -65,8 +63,8 @@ function loadCommands(dir) {
               description: cmd.description || 'No description',
               owner: cmd.owner || false,
               limit: cmd.limit || false,
-              noPrefix: cmd.noPrefix || false, // Tambah noPrefix
-              reaction: cmd.reaction || false // Tambah reaction
+              noPrefix: cmd.noPrefix || false,
+              reaction: cmd.reaction || false
             });
             console.log(chalk.greenBright(`✅ Loaded (execute): ${path.relative(dir, filepath)}`));
           } else {
@@ -140,7 +138,7 @@ async function start() {
     }
   });
 
-  // Tambahan untuk antidelete: Inisialisasi makeInMemoryStore
+  // Inisialisasi makeInMemoryStore untuk antidelete
   const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
   store.bind(conn.ev);
 
@@ -235,9 +233,12 @@ async function start() {
     }
   });
 
-  // Tambahan untuk antidelete: Tangani pesan yang dihapus
+  // Tangani pesan yang dihapus untuk antidelete
   conn.ev.on('messages.delete', async (update) => {
-    console.log(chalk.yellowBright(`[INDEX] Messages delete: ${JSON.stringify(update)}`));
+    console.log(chalk.blueBright('╔═══════════════════════'));
+    console.log(chalk.blueBright(`Event: Messages delete`));
+    console.log(chalk.blueBright(`Detail: ${JSON.stringify(update)}`));
+    console.log(chalk.blueBright('╚═══════════════════════'));
     for (const key of update.keys) {
       await handleMessage({ key, messageStubType: 40 }, { conn });
     }
@@ -279,7 +280,10 @@ async function start() {
 
     if (connection === 'close') {
       const reason = new Boom(lastDisconnect?.error)?.output.statusCode;
-      console.log(chalk.redBright(`Disconnect Reason: ${reason}`));
+      console.log(chalk.blueBright('╔═══════════════════════'));
+      console.log(chalk.blueBright(`Event: Connection closed`));
+      console.log(chalk.blueBright(`Disconnect Reason: ${reason}`));
+      console.log(chalk.blueBright('╚═══════════════════════'));
       if (reason === DisconnectReason.connectionLost || reason === DisconnectReason.connectionClosed || reason === DisconnectReason.timedOut) {
         console.log(chalk.cyanBright('Reconnecting...'));
         setTimeout(start, 3000);
@@ -297,7 +301,10 @@ async function start() {
         process.exit(1);
       }
     } else if (connection === 'open') {
-      console.log(chalk.greenBright('Connected to: ' + JSON.stringify(conn.user, null, 2)));
+      console.log(chalk.blueBright('╔═══════════════════════'));
+      console.log(chalk.blueBright('Event: Connection opened'));
+      console.log(chalk.blueBright(`Connected to: ${JSON.stringify(conn.user, null, 2)}`));
+      console.log(chalk.blueBright('╚═══════════════════════'));
     } else if (qr && !usePairingCode) {
       qrcode.generate(qr, { small: true });
       app.use('/qr', async (req, res) => {
@@ -309,9 +316,12 @@ async function start() {
         const phoneNumber = await question(chalk.green('> Masukan Nomer Aktif (Awali dengan 62): '));
         try {
           const code = await conn.requestPairingCode(phoneNumber, 'NDIKZONE');
-          console.log(chalk.green(`Kode Pairing: ${chalk.bold.white(code?.match(/.{1,4}/g)?.join('-') || code)}`));
+          console.log(chalk.blueBright('╔═══════════════════════'));
+          console.log(chalk.blueBright('Event: Pairing code requested'));
+          console.log(chalk.blueBright(`Kode Pairing: ${chalk.bold.white(code?.match(/.{1,4}/g)?.join('-') || code)}`));
+          console.log(chalk.blueBright('╚═══════════════════════'));
         } catch (error) {
-          console.error(chalk.red(`Gagal meminta kode pairing: ${error.message}`));
+          console.error(chalk.redBright(`Gagal meminta kode pairing: ${error.message}`));
           process.exit(1);
         }
       }, 3000);
