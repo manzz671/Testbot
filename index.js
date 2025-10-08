@@ -1,5 +1,6 @@
 const { WAConnection, jidNormalizedUser } = require('@whiskeysockets/baileys');
-const fs = require('fs').promises;
+const fs = require('fs').promises; // Untuk async (readFile, writeFile)
+const fsSync = require('fs'); // Untuk sync (readdirSync)
 const pino = require('pino');
 const path = require('path');
 const axios = require('axios');
@@ -32,55 +33,61 @@ watchAll([
 global.plugins = [];
 
 function loadCommands(dir) {
+  console.log(chalk.cyanBright(`[LOADCOMMANDS] Memuat plugin dari direktori: ${dir}`));
   const plugins = [];
   const walk = (folder) => {
-    fs.readdirSync(folder).forEach(file => {
-      let filepath = path.join(folder, file);
-      if (fs.lstatSync(filepath).isDirectory()) {
-        walk(filepath);
-      } else if (file.endsWith('.js')) {
-        try {
-          delete require.cache[require.resolve(filepath)];
-          let cmd = require(filepath);
-          if (typeof cmd === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
-            plugins.push({
-              handler: cmd,
-              command: cmd.command,
-              category: cmd.category || 'uncategorized',
-              description: cmd.description || 'No description',
-              owner: cmd.owner || false,
-              limit: cmd.limit || false,
-              noPrefix: cmd.noPrefix || false,
-              reaction: cmd.reaction || false
-            });
-            console.log(chalk.greenBright(`✅ Loaded (handler): ${path.relative(dir, filepath)}`));
-          } else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
-            plugins.push({
-              handler: cmd.execute,
-              command: cmd.command,
-              category: cmd.category || 'uncategorized',
-              description: cmd.description || 'No description',
-              owner: cmd.owner || false,
-              limit: cmd.limit || false,
-              noPrefix: cmd.noPrefix || false,
-              reaction: cmd.reaction || false
-            });
-            console.log(chalk.greenBright(`✅ Loaded (execute): ${path.relative(dir, filepath)}`));
-          } else {
-            console.error(chalk.redBright(`❌ Plugin ${filepath} tidak memiliki handler/execute atau command yang valid`));
+    try {
+      fsSync.readdirSync(folder).forEach(file => {
+        let filepath = path.join(folder, file);
+        if (fsSync.lstatSync(filepath).isDirectory()) {
+          walk(filepath);
+        } else if (file.endsWith('.js')) {
+          try {
+            delete require.cache[require.resolve(filepath)];
+            let cmd = require(filepath);
+            if (typeof cmd === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+              plugins.push({
+                handler: cmd,
+                command: cmd.command,
+                category: cmd.category || 'uncategorized',
+                description: cmd.description || 'No description',
+                owner: cmd.owner || false,
+                limit: cmd.limit || false,
+                noPrefix: cmd.noPrefix || false,
+                reaction: cmd.reaction || false
+              });
+              console.log(chalk.greenBright(`✅ Loaded (handler): ${path.relative(dir, filepath)}`));
+            } else if (typeof cmd === 'object' && cmd.execute && typeof cmd.execute === 'function' && (Array.isArray(cmd.command) || cmd.command instanceof RegExp)) {
+              plugins.push({
+                handler: cmd.execute,
+                command: cmd.command,
+                category: cmd.category || 'uncategorized',
+                description: cmd.description || 'No description',
+                owner: cmd.owner || false,
+                limit: cmd.limit || false,
+                noPrefix: cmd.noPrefix || false,
+                reaction: cmd.reaction || false
+              });
+              console.log(chalk.greenBright(`✅ Loaded (execute): ${path.relative(dir, filepath)}`));
+            } else {
+              console.error(chalk.redBright(`❌ Plugin ${filepath} tidak memiliki handler/execute atau command yang valid`));
+            }
+          } catch (e) {
+            console.error(chalk.redBright(`❌ Error load plugin ${filepath}: ${e.message}`));
           }
-        } catch (e) {
-          console.error(chalk.redBright(`❌ Error load plugin ${filepath}:`, e));
         }
-      }
-    });
+      });
+    } catch (e) {
+      console.error(chalk.redBright(`[LOADCOMMANDS] Error membaca direktori ${folder}: ${e.message}`));
+    }
   };
   walk(dir);
+  console.log(chalk.cyanBright(`[LOADCOMMANDS] Total plugin dimuat: ${plugins.length}`));
   return plugins;
 }
 
 function watchCommands(dir) {
-  fs.watch(dir, { recursive: true }, (event, filename) => {
+  fsSync.watch(dir, { recursive: true }, (event, filename) => {
     if (!filename.endsWith('.js')) return;
     console.log(chalk.cyanBright(`♻️ Plugin ${filename} changed, reloading...`));
     loadAllPlugins();
@@ -96,6 +103,7 @@ function loadAllPlugins() {
 }
 
 async function start() {
+  console.log(chalk.cyanBright('[START] Memulai bot SiluManzz...'));
   const { state, saveCreds } = await useMultiFileAuthState('auth');
   const { version, isLatest } = await fetchLatestBaileysVersion();
 
@@ -230,16 +238,20 @@ async function start() {
     }
 
     // Terapkan autoread
-    const data = await db.read();
-    if (data.set?.autoread?.enabled && !raw.key.fromMe) {
-      await conn.readMessages([raw.key]).catch(e => console.error(chalk.redBright(`[AUTOREAD] Gagal menandai pesan sebagai dibaca: ${e.message}`)));
-      console.log(chalk.greenBright(`[AUTOREAD] Pesan ${raw.key.id} dari ${raw.sender} ditandai sebagai dibaca`));
+    try {
+      const data = await db.read();
+      if (data.set?.autoread?.enabled && !raw.key.fromMe) {
+        await conn.readMessages([raw.key]).catch(e => console.error(chalk.redBright(`[AUTOREAD] Gagal menandai pesan sebagai dibaca: ${e.message}`)));
+        console.log(chalk.greenBright(`[AUTOREAD] Pesan ${raw.key.id} dari ${raw.sender} ditandai sebagai dibaca`));
+      }
+    } catch (e) {
+      console.error(chalk.redBright(`[AUTOREAD] Error membaca database: ${e.message}`));
     }
 
     try {
       await handleMessage(raw, { conn });
     } catch (e) {
-      console.error(chalk.redBright('Error in handleMessage:', e));
+      console.error(chalk.redBright(`[MESSAGES.UPSERT] Error in handleMessage: ${e.message}`));
     }
   });
 
