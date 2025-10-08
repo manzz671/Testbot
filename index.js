@@ -9,7 +9,7 @@ const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 const { toBuffer } = require('qrcode');
 const { parsePhoneNumber } = require('awesome-phonenumber');
-const fetch = require('node-fetch'); // Tambahan untuk autoAI
+const fetch = require('node-fetch');
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, makeInMemoryStore, makeCacheableSignalKeyStore, fetchLatestBaileysVersion, proto, getAggregateVotesInPollMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 const { app, server, PORT } = require('./lib/server');
@@ -224,6 +224,13 @@ async function start() {
       let metadata = await conn.groupMetadata(raw.chat);
       raw.isAdmin = metadata.participants.find(p => p.id === raw.sender)?.admin != null;
       raw.isBotAdmin = metadata.participants.find(p => p.id === conn.user.id)?.admin != null;
+    }
+
+    // Terapkan autoread
+    const data = await db.read();
+    if (data.set?.autoread?.enabled && !raw.key.fromMe) {
+      await conn.readMessages([raw.key]).catch(e => console.error(chalk.redBright(`[AUTOREAD] Gagal menandai pesan sebagai dibaca: ${e.message}`)));
+      console.log(chalk.greenBright(`[AUTOREAD] Pesan ${raw.key.id} dari ${raw.sender} ditandai sebagai dibaca`));
     }
 
     try {
